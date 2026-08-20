@@ -14,6 +14,11 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Initialize database on startup
+initializeDatabase().catch((error) => {
+  console.error('Failed to initialize database:', error);
+});
+
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -36,17 +41,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Internal server error', error: err.message });
 });
 
-// For Vercel serverless functions, export the app
+// Export for Vercel
 module.exports = app;
 
-// Only start server if not running on Vercel
-if (!process.env.VERCEL) {
-  initializeDatabase().then(() => {
-    app.listen(PORT, () => {
-      console.log(`Medical System API running on port ${PORT}`);
-    });
-  }).catch((error) => {
-    console.error('Failed to initialize database:', error);
-    process.exit(1);
+// Start server if not in Vercel environment
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Medical System API running on port ${PORT}`);
   });
 }
