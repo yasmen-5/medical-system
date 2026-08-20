@@ -11,7 +11,7 @@ const authController = {
       const { email, phone, password, name } = req.body;
       
       // Check if user exists
-      const existingUser = await dbGet('SELECT id FROM users WHERE email = ? OR phone = ?', [email, phone]);
+      const existingUser = dbGet('SELECT id FROM users WHERE email = ? OR phone = ?', [email, phone]);
       if (existingUser) {
         return res.status(400).json({ message: 'User already exists' });
       }
@@ -19,7 +19,7 @@ const authController = {
       const userId = uuidv4();
       const hashedPassword = await bcrypt.hash(password, 12);
       
-      await dbRun(`
+      dbRun(`
         INSERT INTO users (id, email, phone, password, name, status)
         VALUES (?, ?, ?, ?, ?, 'pending')
       `, [userId, email, phone, hashedPassword, name]);
@@ -29,7 +29,7 @@ const authController = {
       const otpId = uuidv4();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
       
-      await dbRun(`
+      dbRun(`
         INSERT INTO otp_codes (id, user_id, code, type, expires_at)
         VALUES (?, ?, ?, 'register', ?)
       `, [otpId, userId, otp, expiresAt.toISOString()]);
@@ -52,7 +52,7 @@ const authController = {
       const otpId = uuidv4();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       
-      await dbRun(`
+      dbRun(`
         INSERT INTO otp_codes (id, user_id, code, type, expires_at)
         VALUES (?, ?, ?, 'register', ?)
       `, [otpId, userId, otp, expiresAt.toISOString()]);
@@ -67,7 +67,7 @@ const authController = {
     try {
       const { userId, otp } = req.body;
       
-      const validOtp = await dbGet(`
+      const validOtp = dbGet(`
         SELECT * FROM otp_codes 
         WHERE user_id = ? AND code = ? AND type = 'register' 
         AND datetime(expires_at) > datetime('now') AND used_at IS NULL
@@ -79,10 +79,10 @@ const authController = {
       }
 
       // Mark OTP as used
-      await dbRun('UPDATE otp_codes SET used_at = datetime("now") WHERE id = ?', [validOtp.id]);
+      dbRun('UPDATE otp_codes SET used_at = datetime("now") WHERE id = ?', [validOtp.id]);
       
       // Activate user
-      await dbRun('UPDATE users SET status = "active" WHERE id = ?', [userId]);
+      dbRun('UPDATE users SET status = "active" WHERE id = ?', [userId]);
 
       res.json({ message: 'Account verified successfully' });
     } catch (error) {
@@ -94,7 +94,7 @@ const authController = {
     try {
       const { phone, password } = req.body;
       
-      const user = await dbGet('SELECT * FROM users WHERE phone = ?', [phone]);
+      const user = dbGet('SELECT * FROM users WHERE phone = ?', [phone]);
       if (!user) {
         return res.status(401).json({ message: 'Invalid credentials' });
       }
@@ -113,7 +113,7 @@ const authController = {
       const otpId = uuidv4();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       
-      await dbRun(`
+      dbRun(`
         INSERT INTO otp_codes (id, user_id, code, type, expires_at)
         VALUES (?, ?, ?, 'login', ?)
       `, [otpId, user.id, otp, expiresAt.toISOString()]);
@@ -132,7 +132,7 @@ const authController = {
       const otpId = uuidv4();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       
-      await dbRun(`
+      dbRun(`
         INSERT INTO otp_codes (id, user_id, code, type, expires_at)
         VALUES (?, ?, ?, 'login', ?)
       `, [otpId, userId, otp, expiresAt.toISOString()]);
@@ -147,7 +147,7 @@ const authController = {
     try {
       const { userId, otp } = req.body;
       
-      const validOtp = await dbGet(`
+      const validOtp = dbGet(`
         SELECT * FROM otp_codes 
         WHERE user_id = ? AND code = ? AND type = 'login' 
         AND datetime(expires_at) > datetime('now') AND used_at IS NULL
@@ -159,7 +159,7 @@ const authController = {
       }
 
       // Mark OTP as used
-      await dbRun('UPDATE otp_codes SET used_at = datetime("now") WHERE id = ?', [validOtp.id]);
+      dbRun('UPDATE otp_codes SET used_at = datetime("now") WHERE id = ?', [validOtp.id]);
       
       // Generate tokens
       const token = jwt.sign({ userId }, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '1h' });
@@ -169,7 +169,7 @@ const authController = {
       const sessionId = uuidv4();
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
       
-      await dbRun(`
+      dbRun(`
         INSERT INTO sessions (id, user_id, token, refresh_token, expires_at)
         VALUES (?, ?, ?, ?, ?)
       `, [sessionId, userId, token, refreshToken, expiresAt.toISOString()]);
@@ -186,7 +186,7 @@ const authController = {
       
       const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET || 'your-secret-key');
       
-      const session = await dbGet(`
+      const session = dbGet(`
         SELECT * FROM sessions 
         WHERE refresh_token = ? AND user_id = ? AND datetime(expires_at) > datetime('now')
       `, [refreshToken, decoded.userId]);
@@ -197,7 +197,7 @@ const authController = {
 
       const newToken = jwt.sign({ userId: decoded.userId }, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '1h' });
       
-      await dbRun('UPDATE sessions SET token = ?, expires_at = ? WHERE id = ?',
+      dbRun('UPDATE sessions SET token = ?, expires_at = ? WHERE id = ?',
         [newToken, new Date(Date.now() + 60 * 60 * 1000).toISOString(), session.id]);
 
       res.json({ token: newToken });
@@ -210,7 +210,7 @@ const authController = {
     try {
       const { token } = req.body;
       
-      await dbRun('DELETE FROM sessions WHERE token = ?', [token]);
+      dbRun('DELETE FROM sessions WHERE token = ?', [token]);
       
       res.json({ message: 'Logged out successfully' });
     } catch (error) {
@@ -222,7 +222,7 @@ const authController = {
     try {
       const { phone } = req.body;
       
-      const user = await dbGet('SELECT * FROM users WHERE phone = ?', [phone]);
+      const user = dbGet('SELECT * FROM users WHERE phone = ?', [phone]);
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
       }
@@ -231,7 +231,7 @@ const authController = {
       const otpId = uuidv4();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       
-      await dbRun(`
+      dbRun(`
         INSERT INTO otp_codes (id, user_id, code, type, expires_at)
         VALUES (?, ?, ?, 'password_reset', ?)
       `, [otpId, user.id, otp, expiresAt.toISOString()]);
@@ -250,7 +250,7 @@ const authController = {
       const otpId = uuidv4();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       
-      await dbRun(`
+      dbRun(`
         INSERT INTO otp_codes (id, user_id, code, type, expires_at)
         VALUES (?, ?, ?, 'password_reset', ?)
       `, [otpId, userId, otp, expiresAt.toISOString()]);
@@ -265,7 +265,7 @@ const authController = {
     try {
       const { userId, otp, newPassword } = req.body;
       
-      const validOtp = await dbGet(`
+      const validOtp = dbGet(`
         SELECT * FROM otp_codes 
         WHERE user_id = ? AND code = ? AND type = 'password_reset' 
         AND datetime(expires_at) > datetime('now') AND used_at IS NULL
@@ -277,11 +277,11 @@ const authController = {
       }
 
       // Mark OTP as used
-      await dbRun('UPDATE otp_codes SET used_at = datetime("now") WHERE id = ?', [validOtp.id]);
+      dbRun('UPDATE otp_codes SET used_at = datetime("now") WHERE id = ?', [validOtp.id]);
       
       // Update password
       const hashedPassword = await bcrypt.hash(newPassword, 12);
-      await dbRun('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, userId]);
+      dbRun('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, userId]);
 
       res.json({ message: 'Password reset successful' });
     } catch (error) {

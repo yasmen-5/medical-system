@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { dbGet } = require('../database/setup');
 
-const patientAccess = async (req, res, next) => {
+const patientAccess = (req, res, next) => {
   try {
     const token = req.headers.authorization?.replace('Bearer ', '');
     
@@ -18,7 +18,7 @@ const patientAccess = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
     
-    const session = await dbGet(`
+    const session = dbGet(`
       SELECT * FROM sessions 
       WHERE token = ? AND user_id = ? AND datetime(expires_at) > datetime('now')
     `, [token, decoded.userId]);

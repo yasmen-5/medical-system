@@ -2,14 +2,14 @@ const { dbGet, dbRun, dbQuery } = require('../database/setup');
 const { v4: uuidv4 } = require('uuid');
 
 const patientAiController = {
-  createSession: async (req, res) => {
+  createSession: (req, res) => {
     try {
       const userId = req.userId;
       const { title } = req.body;
       
       const sessionId = uuidv4();
       
-      await dbRun(`
+      dbRun(`
         INSERT INTO ai_chat_sessions (id, user_id, title)
         VALUES (?, ?, ?)
       `, [sessionId, userId, title || 'New Chat']);
@@ -25,11 +25,11 @@ const patientAiController = {
     }
   },
 
-  listSessions: async (req, res) => {
+  listSessions: (req, res) => {
     try {
       const userId = req.userId;
       
-      const sessions = await dbQuery(`
+      const sessions = dbQuery(`
         SELECT id, title, created_at, updated_at 
         FROM ai_chat_sessions 
         WHERE user_id = ? 
@@ -42,12 +42,12 @@ const patientAiController = {
     }
   },
 
-  getSession: async (req, res) => {
+  getSession: (req, res) => {
     try {
       const userId = req.userId;
       const { sessionId } = req.params;
       
-      const session = await dbGet(`
+      const session = dbGet(`
         SELECT * FROM ai_chat_sessions 
         WHERE id = ? AND user_id = ?
       `, [sessionId, userId]);
@@ -56,7 +56,7 @@ const patientAiController = {
         return res.status(404).json({ message: 'Session not found' });
       }
 
-      const messages = await dbQuery(`
+      const messages = dbQuery(`
         SELECT * FROM ai_chat_messages 
         WHERE session_id = ? 
         ORDER BY created_at ASC
@@ -68,13 +68,13 @@ const patientAiController = {
     }
   },
 
-  updateSession: async (req, res) => {
+  updateSession: (req, res) => {
     try {
       const userId = req.userId;
       const { sessionId } = req.params;
       const { title } = req.body;
       
-      const session = await dbGet(`
+      const session = dbGet(`
         SELECT * FROM ai_chat_sessions 
         WHERE id = ? AND user_id = ?
       `, [sessionId, userId]);
@@ -83,7 +83,7 @@ const patientAiController = {
         return res.status(404).json({ message: 'Session not found' });
       }
 
-      await dbRun(`
+      dbRun(`
         UPDATE ai_chat_sessions 
         SET title = ?, updated_at = datetime('now') 
         WHERE id = ?
@@ -95,11 +95,11 @@ const patientAiController = {
     }
   },
 
-  deleteAllSessions: async (req, res) => {
+  deleteAllSessions: (req, res) => {
     try {
       const userId = req.userId;
       
-      await dbRun('DELETE FROM ai_chat_sessions WHERE user_id = ?', [userId]);
+      dbRun('DELETE FROM ai_chat_sessions WHERE user_id = ?', [userId]);
       
       res.json({ message: 'All sessions deleted' });
     } catch (error) {
@@ -107,12 +107,12 @@ const patientAiController = {
     }
   },
 
-  deleteSession: async (req, res) => {
+  deleteSession: (req, res) => {
     try {
       const userId = req.userId;
       const { sessionId } = req.params;
       
-      const session = await dbGet(`
+      const session = dbGet(`
         SELECT * FROM ai_chat_sessions 
         WHERE id = ? AND user_id = ?
       `, [sessionId, userId]);
@@ -121,7 +121,7 @@ const patientAiController = {
         return res.status(404).json({ message: 'Session not found' });
       }
 
-      await dbRun('DELETE FROM ai_chat_sessions WHERE id = ?', [sessionId]);
+      dbRun('DELETE FROM ai_chat_sessions WHERE id = ?', [sessionId]);
       
       res.json({ message: 'Session deleted' });
     } catch (error) {
@@ -129,13 +129,13 @@ const patientAiController = {
     }
   },
 
-  sendMessage: async (req, res) => {
+  sendMessage: (req, res) => {
     try {
       const userId = req.userId;
       const { sessionId } = req.params;
       const { content } = req.body;
       
-      const session = await dbGet(`
+      const session = dbGet(`
         SELECT * FROM ai_chat_sessions 
         WHERE id = ? AND user_id = ?
       `, [sessionId, userId]);
@@ -146,7 +146,7 @@ const patientAiController = {
 
       // Save user message
       const userMessageId = uuidv4();
-      await dbRun(`
+      dbRun(`
         INSERT INTO ai_chat_messages (id, session_id, role, content)
         VALUES (?, ?, 'user', ?)
       `, [userMessageId, sessionId, content]);
@@ -155,13 +155,13 @@ const patientAiController = {
       const aiMessageId = uuidv4();
       const aiResponse = "This is a placeholder AI response. Connect to an AI service for real responses.";
       
-      await dbRun(`
+      dbRun(`
         INSERT INTO ai_chat_messages (id, session_id, role, content)
         VALUES (?, ?, 'assistant', ?)
       `, [aiMessageId, sessionId, aiResponse]);
 
       // Update session timestamp
-      await dbRun('UPDATE ai_chat_sessions SET updated_at = datetime("now") WHERE id = ?', [sessionId]);
+      dbRun('UPDATE ai_chat_sessions SET updated_at = datetime("now") WHERE id = ?', [sessionId]);
 
       res.status(201).json({
         userMessage: { id: userMessageId, role: 'user', content },
