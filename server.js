@@ -14,6 +14,17 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Database initialization middleware
+app.use(async (req, res, next) => {
+  try {
+    await initializeDatabase();
+    next();
+  } catch (error) {
+    console.error('Database initialization error:', error);
+    res.status(500).json({ message: 'Database initialization failed', error: error.message });
+  }
+});
+
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -36,12 +47,17 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Internal server error', error: err.message });
 });
 
-// Initialize database and start server
-initializeDatabase().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Medical System API running on port ${PORT}`);
+// For Vercel serverless functions, export the app
+module.exports = app;
+
+// Only start server if not running on Vercel
+if (!process.env.VERCEL) {
+  initializeDatabase().then(() => {
+    app.listen(PORT, () => {
+      console.log(`Medical System API running on port ${PORT}`);
+    });
+  }).catch((error) => {
+    console.error('Failed to initialize database:', error);
+    process.exit(1);
   });
-}).catch((error) => {
-  console.error('Failed to initialize database:', error);
-  process.exit(1);
-});
+}

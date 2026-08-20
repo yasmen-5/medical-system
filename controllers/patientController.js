@@ -312,10 +312,9 @@ const patientController = {
         return res.status(400).json({ message: 'No file uploaded' });
       }
 
-      // In production with Vercel, you would upload to a cloud service like Vercel Blob or AWS S3
-      // For now, we'll just return the filename as a placeholder
-      const filename = req.file.filename;
-      const profilePictureUrl = `/uploads/${filename}`;
+      // For Vercel, we'll just return a placeholder since we can't store files
+      // In production, you would upload to a cloud service like Vercel Blob or AWS S3
+      const profilePictureUrl = `/uploads/profile-${userId}.jpg`;
       
       dbRun('UPDATE users SET profile_picture = ? WHERE id = ?', [profilePictureUrl, userId]);
 
