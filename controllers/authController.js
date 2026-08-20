@@ -1,4 +1,4 @@
-const { dbGet, dbRun, dbQuery } = require('../database/setup');
+const { dbGet, dbRun, dbUpdate, dbDelete } = require('../database/setup');
 const { v4: uuidv4 } = require('uuid');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -11,7 +11,7 @@ const authController = {
       const { email, phone, password, name } = req.body;
       
       // Check if user exists
-      const existingUser = dbGet('SELECT id FROM users WHERE email = ? OR phone = ?', [email, phone]);
+      const existingUser = dbGet('users', u => u.email === email || u.phone === phone);
       if (existingUser) {
         return res.status(400).json({ message: 'User already exists' });
       }
@@ -19,20 +19,31 @@ const authController = {
       const userId = uuidv4();
       const hashedPassword = await bcrypt.hash(password, 12);
       
-      dbRun(`
-        INSERT INTO users (id, email, phone, password, name, status)
-        VALUES (?, ?, ?, ?, ?, 'pending')
-      `, [userId, email, phone, hashedPassword, name]);
+      dbRun('users', {
+        id: userId,
+        email,
+        phone,
+        password: hashedPassword,
+        name,
+        role: 'patient',
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
 
       // Generate OTP
       const otp = generateOTP();
       const otpId = uuidv4();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
       
-      dbRun(`
-        INSERT INTO otp_codes (id, user_id, code, type, expires_at)
-        VALUES (?, ?, ?, 'register', ?)
-      `, [otpId, userId, otp, expiresAt.toISOString()]);
+      dbRun('otpCodes', {
+        id: otpId,
+        user_id: userId,
+        code: otp,
+        type: 'register',
+        expires_at: expiresAt.toISOString(),
+        created_at: new Date().toISOString()
+      });
 
       res.status(201).json({
         message: 'Registration successful. Please verify OTP.',
@@ -52,10 +63,14 @@ const authController = {
       const otpId = uuidv4();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       
-      dbRun(`
-        INSERT INTO otp_codes (id, user_id, code, type, expires_at)
-        VALUES (?, ?, ?, 'register', ?)
-      `, [otpId, userId, otp, expiresAt.toISOString()]);
+      dbRun('otpCodes', {
+        id: otpId,
+        user_id: userId,
+        code: otp,
+        type: 'register',
+        expires_at: expiresAt.toISOString(),
+        created_at: new Date().toISOString()
+      });
 
       res.json({ message: 'OTP resent', otp });
     } catch (error) {
@@ -67,22 +82,23 @@ const authController = {
     try {
       const { userId, otp } = req.body;
       
-      const validOtp = dbGet(`
-        SELECT * FROM otp_codes 
-        WHERE user_id = ? AND code = ? AND type = 'register' 
-        AND datetime(expires_at) > datetime('now') AND used_at IS NULL
-        ORDER BY created_at DESC LIMIT 1
-      `, [userId, otp]);
+      const validOtp = dbGet('otpCodes', o => 
+        o.user_id === userId && 
+        o.code === otp && 
+        o.type === 'register' && 
+        new Date(o.expires_at) > new Date() && 
+        !o.used_at
+      );
 
       if (!validOtp) {
         return res.status(400).json({ message: 'Invalid or expired OTP' });
       }
 
       // Mark OTP as used
-      dbRun('UPDATE otp_codes SET used_at = datetime("now") WHERE id = ?', [validOtp.id]);
+      dbUpdate('otpCodes', o => o.id === validOtp.id, o => ({ ...o, used_at: new Date().toISOString() }));
       
       // Activate user
-      dbRun('UPDATE users SET status = "active" WHERE id = ?', [userId]);
+      dbUpdate('users', u => u.id === userId, u => ({ ...u, status: 'active' }));
 
       res.json({ message: 'Account verified successfully' });
     } catch (error) {
@@ -94,7 +110,7 @@ const authController = {
     try {
       const { phone, password } = req.body;
       
-      const user = dbGet('SELECT * FROM users WHERE phone = ?', [phone]);
+      const user = dbGet('users', u => u.phone === phone);
       if (!user) {
         return res.status(401).json({ message: 'Invalid credentials' });
       }
@@ -113,10 +129,14 @@ const authController = {
       const otpId = uuidv4();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       
-      dbRun(`
-        INSERT INTO otp_codes (id, user_id, code, type, expires_at)
-        VALUES (?, ?, ?, 'login', ?)
-      `, [otpId, user.id, otp, expiresAt.toISOString()]);
+      dbRun('otpCodes', {
+        id: otpId,
+        user_id: user.id,
+        code: otp,
+        type: 'login',
+        expires_at: expiresAt.toISOString(),
+        created_at: new Date().toISOString()
+      });
 
       res.json({ message: 'OTP sent for login verification', userId: user.id, otp });
     } catch (error) {
@@ -132,10 +152,14 @@ const authController = {
       const otpId = uuidv4();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       
-      dbRun(`
-        INSERT INTO otp_codes (id, user_id, code, type, expires_at)
-        VALUES (?, ?, ?, 'login', ?)
-      `, [otpId, userId, otp, expiresAt.toISOString()]);
+      dbRun('otpCodes', {
+        id: otpId,
+        user_id: userId,
+        code: otp,
+        type: 'login',
+        expires_at: expiresAt.toISOString(),
+        created_at: new Date().toISOString()
+      });
 
       res.json({ message: 'Login OTP resent', otp });
     } catch (error) {
@@ -147,19 +171,20 @@ const authController = {
     try {
       const { userId, otp } = req.body;
       
-      const validOtp = dbGet(`
-        SELECT * FROM otp_codes 
-        WHERE user_id = ? AND code = ? AND type = 'login' 
-        AND datetime(expires_at) > datetime('now') AND used_at IS NULL
-        ORDER BY created_at DESC LIMIT 1
-      `, [userId, otp]);
+      const validOtp = dbGet('otpCodes', o => 
+        o.user_id === userId && 
+        o.code === otp && 
+        o.type === 'login' && 
+        new Date(o.expires_at) > new Date() && 
+        !o.used_at
+      );
 
       if (!validOtp) {
         return res.status(400).json({ message: 'Invalid or expired OTP' });
       }
 
       // Mark OTP as used
-      dbRun('UPDATE otp_codes SET used_at = datetime("now") WHERE id = ?', [validOtp.id]);
+      dbUpdate('otpCodes', o => o.id === validOtp.id, o => ({ ...o, used_at: new Date().toISOString() }));
       
       // Generate tokens
       const token = jwt.sign({ userId }, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '1h' });
@@ -169,10 +194,14 @@ const authController = {
       const sessionId = uuidv4();
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
       
-      dbRun(`
-        INSERT INTO sessions (id, user_id, token, refresh_token, expires_at)
-        VALUES (?, ?, ?, ?, ?)
-      `, [sessionId, userId, token, refreshToken, expiresAt.toISOString()]);
+      dbRun('sessions', {
+        id: sessionId,
+        user_id: userId,
+        token,
+        refresh_token: refreshToken,
+        expires_at: expiresAt.toISOString(),
+        created_at: new Date().toISOString()
+      });
 
       res.json({ token, refreshToken, userId });
     } catch (error) {
@@ -186,10 +215,11 @@ const authController = {
       
       const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET || 'your-secret-key');
       
-      const session = dbGet(`
-        SELECT * FROM sessions 
-        WHERE refresh_token = ? AND user_id = ? AND datetime(expires_at) > datetime('now')
-      `, [refreshToken, decoded.userId]);
+      const session = dbGet('sessions', s => 
+        s.refresh_token === refreshToken && 
+        s.user_id === decoded.userId && 
+        new Date(s.expires_at) > new Date()
+      );
 
       if (!session) {
         return res.status(401).json({ message: 'Invalid refresh token' });
@@ -197,8 +227,11 @@ const authController = {
 
       const newToken = jwt.sign({ userId: decoded.userId }, process.env.JWT_SECRET || 'your-secret-key', { expiresIn: '1h' });
       
-      dbRun('UPDATE sessions SET token = ?, expires_at = ? WHERE id = ?',
-        [newToken, new Date(Date.now() + 60 * 60 * 1000).toISOString(), session.id]);
+      dbUpdate('sessions', s => s.id === session.id, s => ({
+        ...s,
+        token: newToken,
+        expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString()
+      }));
 
       res.json({ token: newToken });
     } catch (error) {
@@ -210,7 +243,7 @@ const authController = {
     try {
       const { token } = req.body;
       
-      dbRun('DELETE FROM sessions WHERE token = ?', [token]);
+      dbDelete('sessions', s => s.token === token);
       
       res.json({ message: 'Logged out successfully' });
     } catch (error) {
@@ -222,7 +255,7 @@ const authController = {
     try {
       const { phone } = req.body;
       
-      const user = dbGet('SELECT * FROM users WHERE phone = ?', [phone]);
+      const user = dbGet('users', u => u.phone === phone);
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
       }
@@ -231,10 +264,14 @@ const authController = {
       const otpId = uuidv4();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       
-      dbRun(`
-        INSERT INTO otp_codes (id, user_id, code, type, expires_at)
-        VALUES (?, ?, ?, 'password_reset', ?)
-      `, [otpId, user.id, otp, expiresAt.toISOString()]);
+      dbRun('otpCodes', {
+        id: otpId,
+        user_id: user.id,
+        code: otp,
+        type: 'password_reset',
+        expires_at: expiresAt.toISOString(),
+        created_at: new Date().toISOString()
+      });
 
       res.json({ message: 'Password reset OTP sent', userId: user.id, otp });
     } catch (error) {
@@ -250,10 +287,14 @@ const authController = {
       const otpId = uuidv4();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
       
-      dbRun(`
-        INSERT INTO otp_codes (id, user_id, code, type, expires_at)
-        VALUES (?, ?, ?, 'password_reset', ?)
-      `, [otpId, userId, otp, expiresAt.toISOString()]);
+      dbRun('otpCodes', {
+        id: otpId,
+        user_id: userId,
+        code: otp,
+        type: 'password_reset',
+        expires_at: expiresAt.toISOString(),
+        created_at: new Date().toISOString()
+      });
 
       res.json({ message: 'Password reset OTP resent', otp });
     } catch (error) {
@@ -265,23 +306,24 @@ const authController = {
     try {
       const { userId, otp, newPassword } = req.body;
       
-      const validOtp = dbGet(`
-        SELECT * FROM otp_codes 
-        WHERE user_id = ? AND code = ? AND type = 'password_reset' 
-        AND datetime(expires_at) > datetime('now') AND used_at IS NULL
-        ORDER BY created_at DESC LIMIT 1
-      `, [userId, otp]);
+      const validOtp = dbGet('otpCodes', o => 
+        o.user_id === userId && 
+        o.code === otp && 
+        o.type === 'password_reset' && 
+        new Date(o.expires_at) > new Date() && 
+        !o.used_at
+      );
 
       if (!validOtp) {
         return res.status(400).json({ message: 'Invalid or expired OTP' });
       }
 
       // Mark OTP as used
-      dbRun('UPDATE otp_codes SET used_at = datetime("now") WHERE id = ?', [validOtp.id]);
+      dbUpdate('otpCodes', o => o.id === validOtp.id, o => ({ ...o, used_at: new Date().toISOString() }));
       
       // Update password
       const hashedPassword = await bcrypt.hash(newPassword, 12);
-      dbRun('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, userId]);
+      dbUpdate('users', u => u.id === userId, u => ({ ...u, password: hashedPassword }));
 
       res.json({ message: 'Password reset successful' });
     } catch (error) {

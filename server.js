@@ -14,17 +14,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Database initialization middleware
-app.use(async (req, res, next) => {
-  try {
-    await initializeDatabase();
-    next();
-  } catch (error) {
-    console.error('Database initialization error:', error);
-    res.status(500).json({ message: 'Database initialization failed', error: error.message });
-  }
-});
-
 // Static files
 app.use(express.static(path.join(__dirname, 'public')));
 

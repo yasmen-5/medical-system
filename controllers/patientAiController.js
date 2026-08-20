@@ -1,4 +1,4 @@
-const { dbGet, dbRun, dbQuery } = require('../database/setup');
+const { dbGet, dbRun, dbQuery, dbUpdate, dbDelete } = require('../database/setup');
 const { v4: uuidv4 } = require('uuid');
 
 const patientAiController = {
@@ -9,10 +9,13 @@ const patientAiController = {
       
       const sessionId = uuidv4();
       
-      dbRun(`
-        INSERT INTO ai_chat_sessions (id, user_id, title)
-        VALUES (?, ?, ?)
-      `, [sessionId, userId, title || 'New Chat']);
+      dbRun('aiChatSessions', {
+        id: sessionId,
+        userId,
+        title: title || 'New Chat',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
 
       res.status(201).json({
         id: sessionId,
@@ -29,12 +32,8 @@ const patientAiController = {
     try {
       const userId = req.userId;
       
-      const sessions = dbQuery(`
-        SELECT id, title, created_at, updated_at 
-        FROM ai_chat_sessions 
-        WHERE user_id = ? 
-        ORDER BY updated_at DESC
-      `, [userId]);
+      const sessions = dbQuery('aiChatSessions', s => s.userId === userId)
+        .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
 
       res.json({ sessions });
     } catch (error) {
@@ -47,20 +46,14 @@ const patientAiController = {
       const userId = req.userId;
       const { sessionId } = req.params;
       
-      const session = dbGet(`
-        SELECT * FROM ai_chat_sessions 
-        WHERE id = ? AND user_id = ?
-      `, [sessionId, userId]);
+      const session = dbGet('aiChatSessions', s => s.id === sessionId && s.userId === userId);
 
       if (!session) {
         return res.status(404).json({ message: 'Session not found' });
       }
 
-      const messages = dbQuery(`
-        SELECT * FROM ai_chat_messages 
-        WHERE session_id = ? 
-        ORDER BY created_at ASC
-      `, [sessionId]);
+      const messages = dbQuery('aiChatMessages', m => m.session_id === sessionId)
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
       res.json({ session, messages });
     } catch (error) {
@@ -74,20 +67,17 @@ const patientAiController = {
       const { sessionId } = req.params;
       const { title } = req.body;
       
-      const session = dbGet(`
-        SELECT * FROM ai_chat_sessions 
-        WHERE id = ? AND user_id = ?
-      `, [sessionId, userId]);
+      const session = dbGet('aiChatSessions', s => s.id === sessionId && s.userId === userId);
 
       if (!session) {
         return res.status(404).json({ message: 'Session not found' });
       }
 
-      dbRun(`
-        UPDATE ai_chat_sessions 
-        SET title = ?, updated_at = datetime('now') 
-        WHERE id = ?
-      `, [title, sessionId]);
+      dbUpdate('aiChatSessions', s => s.id === sessionId, s => ({
+        ...s,
+        title,
+        updated_at: new Date().toISOString()
+      }));
 
       res.json({ message: 'Session updated' });
     } catch (error) {
@@ -99,7 +89,7 @@ const patientAiController = {
     try {
       const userId = req.userId;
       
-      dbRun('DELETE FROM ai_chat_sessions WHERE user_id = ?', [userId]);
+      dbDelete('aiChatSessions', s => s.userId === userId);
       
       res.json({ message: 'All sessions deleted' });
     } catch (error) {
@@ -112,16 +102,13 @@ const patientAiController = {
       const userId = req.userId;
       const { sessionId } = req.params;
       
-      const session = dbGet(`
-        SELECT * FROM ai_chat_sessions 
-        WHERE id = ? AND user_id = ?
-      `, [sessionId, userId]);
+      const session = dbGet('aiChatSessions', s => s.id === sessionId && s.userId === userId);
 
       if (!session) {
         return res.status(404).json({ message: 'Session not found' });
       }
 
-      dbRun('DELETE FROM ai_chat_sessions WHERE id = ?', [sessionId]);
+      dbDelete('aiChatSessions', s => s.id === sessionId);
       
       res.json({ message: 'Session deleted' });
     } catch (error) {
@@ -135,10 +122,7 @@ const patientAiController = {
       const { sessionId } = req.params;
       const { content } = req.body;
       
-      const session = dbGet(`
-        SELECT * FROM ai_chat_sessions 
-        WHERE id = ? AND user_id = ?
-      `, [sessionId, userId]);
+      const session = dbGet('aiChatSessions', s => s.id === sessionId && s.userId === userId);
 
       if (!session) {
         return res.status(404).json({ message: 'Session not found' });
@@ -146,22 +130,31 @@ const patientAiController = {
 
       // Save user message
       const userMessageId = uuidv4();
-      dbRun(`
-        INSERT INTO ai_chat_messages (id, session_id, role, content)
-        VALUES (?, ?, 'user', ?)
-      `, [userMessageId, sessionId, content]);
+      dbRun('aiChatMessages', {
+        id: userMessageId,
+        session_id: sessionId,
+        role: 'user',
+        content,
+        created_at: new Date().toISOString()
+      });
 
       // Generate AI response (placeholder)
       const aiMessageId = uuidv4();
       const aiResponse = "This is a placeholder AI response. Connect to an AI service for real responses.";
       
-      dbRun(`
-        INSERT INTO ai_chat_messages (id, session_id, role, content)
-        VALUES (?, ?, 'assistant', ?)
-      `, [aiMessageId, sessionId, aiResponse]);
+      dbRun('aiChatMessages', {
+        id: aiMessageId,
+        session_id: sessionId,
+        role: 'assistant',
+        content: aiResponse,
+        created_at: new Date().toISOString()
+      });
 
       // Update session timestamp
-      dbRun('UPDATE ai_chat_sessions SET updated_at = datetime("now") WHERE id = ?', [sessionId]);
+      dbUpdate('aiChatSessions', s => s.id === sessionId, s => ({
+        ...s,
+        updated_at: new Date().toISOString()
+      }));
 
       res.status(201).json({
         userMessage: { id: userMessageId, role: 'user', content },

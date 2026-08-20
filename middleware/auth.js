@@ -18,10 +18,11 @@ const patientAccess = (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
     
-    const session = dbGet(`
-      SELECT * FROM sessions 
-      WHERE token = ? AND user_id = ? AND datetime(expires_at) > datetime('now')
-    `, [token, decoded.userId]);
+    const session = dbGet('sessions', s => 
+      s.token === token && 
+      s.user_id === decoded.userId && 
+      new Date(s.expires_at) > new Date()
+    );
 
     if (!session) {
       return res.status(401).json({ message: 'Invalid or expired token' });

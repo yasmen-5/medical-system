@@ -1,4 +1,4 @@
-const { dbGet, dbRun, dbQuery } = require('../database/setup');
+const { dbGet, dbRun, dbQuery, dbUpdate, dbDelete } = require('../database/setup');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
@@ -7,7 +7,7 @@ const patientController = {
   medicalIdentity: (req, res) => {
     try {
       const userId = req.userId;
-      const user = dbGet('SELECT id, name, email, phone FROM users WHERE id = ?', [userId]);
+      const user = dbGet('users', u => u.id === userId);
       
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
@@ -28,7 +28,7 @@ const patientController = {
   name: (req, res) => {
     try {
       const userId = req.userId;
-      const user = dbGet('SELECT name FROM users WHERE id = ?', [userId]);
+      const user = dbGet('users', u => u.id === userId);
       
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
@@ -45,11 +45,7 @@ const patientController = {
       const userId = req.userId;
       
       // Get all medical encounters for the user
-      const encounters = dbQuery(`
-        SELECT * FROM medical_encounters 
-        WHERE user_id = ? 
-        ORDER BY encounter_date DESC
-      `, [userId]);
+      const encounters = dbQuery('medicalEncounters', e => e.user_id === userId);
 
       res.json({ encounters });
     } catch (error) {
@@ -62,20 +58,14 @@ const patientController = {
       const userId = req.userId;
       const { encounterId } = req.params;
       
-      const encounter = dbGet(`
-        SELECT * FROM medical_encounters 
-        WHERE id = ? AND user_id = ?
-      `, [encounterId, userId]);
+      const encounter = dbGet('medicalEncounters', e => e.id === encounterId && e.user_id === userId);
 
       if (!encounter) {
         return res.status(404).json({ message: 'Encounter not found' });
       }
 
       // Get encounter details
-      const details = dbQuery(`
-        SELECT * FROM encounter_details 
-        WHERE encounter_id = ?
-      `, [encounterId]);
+      const details = dbQuery('encounterDetails', d => d.encounter_id === encounterId);
 
       res.json({ encounter, details });
     } catch (error) {
@@ -87,11 +77,7 @@ const patientController = {
     try {
       const userId = req.userId;
       
-      const reminders = dbQuery(`
-        SELECT * FROM reminders 
-        WHERE user_id = ? 
-        ORDER BY reminder_time ASC
-      `, [userId]);
+      const reminders = dbQuery('reminders', r => r.user_id === userId);
 
       res.json({ reminders });
     } catch (error) {
@@ -103,11 +89,11 @@ const patientController = {
     try {
       const userId = req.userId;
       
-      const reminders = dbQuery(`
-        SELECT * FROM reminders 
-        WHERE user_id = ? AND status = 'active' AND datetime(reminder_time) > datetime('now')
-        ORDER BY reminder_time ASC
-      `, [userId]);
+      const reminders = dbQuery('reminders', r => 
+        r.user_id === userId && 
+        r.status === 'active' && 
+        new Date(r.reminder_time) > new Date()
+      );
 
       res.json({ reminders });
     } catch (error) {
@@ -119,9 +105,9 @@ const patientController = {
     try {
       const userId = req.userId;
       
-      const total = (dbGet('SELECT COUNT(*) as count FROM reminders WHERE user_id = ?', [userId])).count;
-      const active = (dbGet('SELECT COUNT(*) as count FROM reminders WHERE user_id = ? AND status = "active"', [userId])).count;
-      const completed = (dbGet('SELECT COUNT(*) as count FROM reminders WHERE user_id = ? AND status = "completed"', [userId])).count;
+      const total = dbQuery('reminders', r => r.user_id === userId).length;
+      const active = dbQuery('reminders', r => r.user_id === userId && r.status === 'active').length;
+      const completed = dbQuery('reminders', r => r.user_id === userId && r.status === 'completed').length;
 
       res.json({ total, active, completed });
     } catch (error) {
@@ -134,11 +120,10 @@ const patientController = {
       const userId = req.userId;
       const today = new Date().toISOString().split('T')[0];
       
-      const schedule = dbQuery(`
-        SELECT * FROM reminders 
-        WHERE user_id = ? AND date(reminder_time) = ?
-        ORDER BY reminder_time ASC
-      `, [userId, today]);
+      const schedule = dbQuery('reminders', r => 
+        r.user_id === userId && 
+        new Date(r.reminder_time).toISOString().split('T')[0] === today
+      );
 
       res.json({ schedule });
     } catch (error) {
@@ -152,20 +137,19 @@ const patientController = {
       const { reminderId } = req.params;
       const { status, reminder_time, notes } = req.body;
       
-      const reminder = dbGet(`
-        SELECT * FROM reminders 
-        WHERE id = ? AND user_id = ?
-      `, [reminderId, userId]);
+      const reminder = dbGet('reminders', r => r.id === reminderId && r.user_id === userId);
 
       if (!reminder) {
         return res.status(404).json({ message: 'Reminder not found' });
       }
 
-      dbRun(`
-        UPDATE reminders 
-        SET status = ?, reminder_time = ?, notes = ?, updated_at = datetime('now')
-        WHERE id = ?
-      `, [status || reminder.status, reminder_time || reminder.reminder_time, notes || reminder.notes, reminderId]);
+      dbUpdate('reminders', r => r.id === reminderId, r => ({
+        ...r,
+        status: status || r.status,
+        reminder_time: reminder_time || r.reminder_time,
+        notes: notes || r.notes,
+        updated_at: new Date().toISOString()
+      }));
 
       res.json({ message: 'Reminder updated successfully' });
     } catch (error) {
@@ -177,12 +161,9 @@ const patientController = {
     try {
       const userId = req.userId;
       
-      const notifications = dbQuery(`
-        SELECT * FROM notifications 
-        WHERE user_id = ? 
-        ORDER BY created_at DESC
-        LIMIT 50
-      `, [userId]);
+      const notifications = dbQuery('notifications', n => n.user_id === userId)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 50);
 
       res.json({ notifications });
     } catch (error) {
@@ -194,11 +175,8 @@ const patientController = {
     try {
       const userId = req.userId;
       
-      const notifications = dbQuery(`
-        SELECT * FROM notifications 
-        WHERE user_id = ? AND read_at IS NULL
-        ORDER BY created_at DESC
-      `, [userId]);
+      const notifications = dbQuery('notifications', n => n.user_id === userId && !n.read_at)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
       res.json({ notifications });
     } catch (error) {
@@ -211,16 +189,13 @@ const patientController = {
       const userId = req.userId;
       const { notificationId } = req.params;
       
-      const notification = dbGet(`
-        SELECT * FROM notifications 
-        WHERE id = ? AND user_id = ?
-      `, [notificationId, userId]);
+      const notification = dbGet('notifications', n => n.id === notificationId && n.user_id === userId);
 
       if (!notification) {
         return res.status(404).json({ message: 'Notification not found' });
       }
 
-      dbRun('UPDATE notifications SET read_at = datetime("now") WHERE id = ?', [notificationId]);
+      dbUpdate('notifications', n => n.id === notificationId, n => ({ ...n, read_at: new Date().toISOString() }));
 
       res.json({ message: 'Notification marked as read' });
     } catch (error) {
@@ -232,11 +207,8 @@ const patientController = {
     try {
       const userId = req.userId;
       
-      const diagnoses = dbQuery(`
-        SELECT * FROM health_journal_diagnoses 
-        WHERE user_id = ? 
-        ORDER BY diagnosed_date DESC
-      `, [userId]);
+      const diagnoses = dbQuery('healthJournalDiagnoses', d => d.user_id === userId)
+        .sort((a, b) => new Date(b.diagnosed_date) - new Date(a.diagnosed_date));
 
       res.json({ diagnoses });
     } catch (error) {
@@ -251,10 +223,15 @@ const patientController = {
       
       const noteId = uuidv4();
       
-      dbRun(`
-        INSERT INTO health_journal_notes (id, user_id, diagnosis_id, note, symptoms, severity)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, [noteId, userId, diagnosisId, note, symptoms, severity]);
+      dbRun('healthJournalNotes', {
+        id: noteId,
+        userId,
+        diagnosisId,
+        note,
+        symptoms,
+        severity,
+        created_at: new Date().toISOString()
+      });
 
       res.status(201).json({
         id: noteId,
@@ -274,12 +251,9 @@ const patientController = {
     try {
       const userId = req.userId;
       
-      const notes = dbQuery(`
-        SELECT * FROM health_journal_notes 
-        WHERE user_id = ? 
-        ORDER BY created_at DESC
-        LIMIT 20
-      `, [userId]);
+      const notes = dbQuery('healthJournalNotes', n => n.user_id === userId)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 20);
 
       res.json({ notes });
     } catch (error) {
@@ -292,11 +266,8 @@ const patientController = {
       const userId = req.userId;
       const { diagnosisId } = req.params;
       
-      const notes = dbQuery(`
-        SELECT * FROM health_journal_notes 
-        WHERE user_id = ? AND diagnosis_id = ?
-        ORDER BY created_at DESC
-      `, [userId, diagnosisId]);
+      const notes = dbQuery('healthJournalNotes', n => n.user_id === userId && n.diagnosis_id === diagnosisId)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
       res.json({ notes });
     } catch (error) {
@@ -316,7 +287,7 @@ const patientController = {
       // In production, you would upload to a cloud service like Vercel Blob or AWS S3
       const profilePictureUrl = `/uploads/profile-${userId}.jpg`;
       
-      dbRun('UPDATE users SET profile_picture = ? WHERE id = ?', [profilePictureUrl, userId]);
+      dbUpdate('users', u => u.id === userId, u => ({ ...u, profile_picture: profilePictureUrl }));
 
       res.json({ 
         message: 'Profile picture uploaded successfully',
@@ -330,7 +301,7 @@ const patientController = {
   profilePicture: (req, res) => {
     try {
       const userId = req.userId;
-      const user = dbGet('SELECT profile_picture FROM users WHERE id = ?', [userId]);
+      const user = dbGet('users', u => u.id === userId);
       
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
@@ -349,10 +320,14 @@ const patientController = {
       
       const contactId = uuidv4();
       
-      dbRun(`
-        INSERT INTO emergency_contacts (id, user_id, name, phone, relationship)
-        VALUES (?, ?, ?, ?, ?)
-      `, [contactId, userId, name, phone, relationship]);
+      dbRun('emergencyContacts', {
+        id: contactId,
+        userId,
+        name,
+        phone,
+        relationship,
+        created_at: new Date().toISOString()
+      });
 
       res.status(201).json({
         id: contactId,
@@ -372,16 +347,13 @@ const patientController = {
       const userId = req.userId;
       const { contactId } = req.params;
       
-      const contact = dbGet(`
-        SELECT * FROM emergency_contacts 
-        WHERE id = ? AND user_id = ?
-      `, [contactId, userId]);
+      const contact = dbGet('emergencyContacts', c => c.id === contactId && c.userId === userId);
 
       if (!contact) {
         return res.status(404).json({ message: 'Emergency contact not found' });
       }
 
-      dbRun('DELETE FROM emergency_contacts WHERE id = ?', [contactId]);
+      dbDelete('emergencyContacts', c => c.id === contactId);
 
       res.json({ message: 'Emergency contact removed successfully' });
     } catch (error) {
