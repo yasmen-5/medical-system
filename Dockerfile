@@ -13,11 +13,11 @@ RUN apt-get update && apt-get install -y \
     zip \
     unzip \
     libpq-dev \
-    supervisor \
+    sqlite3 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install PHP extensions
-RUN docker-php-ext-install pdo pdo_pgsql mbstring exif pcntl bcmath gd
+RUN docker-php-ext-install pdo pdo_sqlite mbstring exif pcntl bcmath gd
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -29,14 +29,20 @@ COPY . .
 RUN composer install --no-dev --optimize-autoloader --no-interaction
 
 # Install Node.js and npm
-RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - && \
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y nodejs
 
 # Install and build frontend assets
 RUN npm install && npm run build
 
-# Copy environment file and create from env variables
+# Copy environment file
 RUN cp .env.example .env
+
+# Generate application key
+RUN php artisan key:generate
+
+# Run migrations
+RUN php artisan migrate --force
 
 # Set permissions
 RUN chmod -R 777 storage bootstrap/cache
