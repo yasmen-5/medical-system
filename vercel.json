@@ -3,6 +3,5 @@
   "outputDirectory": ".",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
-  "startCommand": "node server.js",
   "framework": null
 }
