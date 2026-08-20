@@ -38,6 +38,9 @@ RUN npm install && npm run build
 # Copy environment file
 RUN cp .env.example .env
 
+# Create database file
+RUN touch database/database.sqlite
+
 # Generate application key
 RUN php artisan key:generate
 
