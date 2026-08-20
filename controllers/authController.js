@@ -1,7 +1,12 @@
 const { dbGet, dbRun, dbUpdate, dbDelete } = require('../database/setup');
 const { v4: uuidv4 } = require('uuid');
-const bcrypt = require('bcrypt');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+
+// Simple SHA-256 hashing (for demo purposes - use bcrypt in production)
+const hashPassword = (password) => {
+  return crypto.createHash('sha256').update(password).digest('hex');
+};
 
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -17,7 +22,7 @@ const authController = {
       }
 
       const userId = uuidv4();
-      const hashedPassword = await bcrypt.hash(password, 12);
+      const hashedPassword = hashPassword(password);
       
       dbRun('users', {
         id: userId,
@@ -115,7 +120,7 @@ const authController = {
         return res.status(401).json({ message: 'Invalid credentials' });
       }
 
-      const validPassword = await bcrypt.compare(password, user.password);
+      const validPassword = user.password === hashPassword(password);
       if (!validPassword) {
         return res.status(401).json({ message: 'Invalid credentials' });
       }
@@ -322,7 +327,7 @@ const authController = {
       dbUpdate('otpCodes', o => o.id === validOtp.id, o => ({ ...o, used_at: new Date().toISOString() }));
       
       // Update password
-      const hashedPassword = await bcrypt.hash(newPassword, 12);
+      const hashedPassword = hashPassword(newPassword);
       dbUpdate('users', u => u.id === userId, u => ({ ...u, password: hashedPassword }));
 
       res.json({ message: 'Password reset successful' });
