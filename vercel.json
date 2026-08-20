@@ -1,0 +1,11 @@
+{
+  "buildCommand": "composer install --no-dev --optimize-autoloader && npm install && npm run build",
+  "outputDirectory": "public",
+  "installCommand": "composer install",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.php"
+    }
+  ]
+}
