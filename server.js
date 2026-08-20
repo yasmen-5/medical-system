@@ -6,9 +6,6 @@ const { initializeDatabase } = require('./database/setup');
 
 dotenv.config();
 
-// Initialize database
-initializeDatabase();
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -39,6 +36,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Internal server error', error: err.message });
 });
 
-app.listen(PORT, () => {
-  console.log(`Medical System API running on port ${PORT}`);
+// Initialize database and start server
+initializeDatabase().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Medical System API running on port ${PORT}`);
+  });
+}).catch((error) => {
+  console.error('Failed to initialize database:', error);
+  process.exit(1);
 });

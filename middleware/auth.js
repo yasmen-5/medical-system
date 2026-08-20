@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
-const { db } = require('../database/setup');
+const { dbGet } = require('../database/setup');
 
-const patientAccess = (req, res, next) => {
+const patientAccess = async (req, res, next) => {
   try {
     const token = req.headers.authorization?.replace('Bearer ', '');
     
@@ -18,10 +18,10 @@ const patientAccess = (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
     
-    const session = db.prepare(`
+    const session = await dbGet(`
       SELECT * FROM sessions 
-      WHERE token = ? AND user_id = ? AND expires_at > datetime('now')
-    `).get(token, decoded.userId);
+      WHERE token = ? AND user_id = ? AND datetime(expires_at) > datetime('now')
+    `, [token, decoded.userId]);
 
     if (!session) {
       return res.status(401).json({ message: 'Invalid or expired token' });

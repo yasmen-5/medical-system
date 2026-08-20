@@ -1,13 +1,13 @@
-const { db } = require('../database/setup');
+const { dbGet, dbRun, dbQuery } = require('../database/setup');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
 
 const patientController = {
-  medicalIdentity: (req, res) => {
+  medicalIdentity: async (req, res) => {
     try {
       const userId = req.userId;
-      const user = db.prepare('SELECT id, name, email, phone FROM users WHERE id = ?').get(userId);
+      const user = await dbGet('SELECT id, name, email, phone FROM users WHERE id = ?', [userId]);
       
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
@@ -25,10 +25,10 @@ const patientController = {
     }
   },
 
-  name: (req, res) => {
+  name: async (req, res) => {
     try {
       const userId = req.userId;
-      const user = db.prepare('SELECT name FROM users WHERE id = ?').get(userId);
+      const user = await dbGet('SELECT name FROM users WHERE id = ?', [userId]);
       
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
@@ -40,16 +40,16 @@ const patientController = {
     }
   },
 
-  medicalHistory: (req, res) => {
+  medicalHistory: async (req, res) => {
     try {
       const userId = req.userId;
       
       // Get all medical encounters for the user
-      const encounters = db.prepare(`
+      const encounters = await dbQuery(`
         SELECT * FROM medical_encounters 
         WHERE user_id = ? 
         ORDER BY encounter_date DESC
-      `).all(userId);
+      `, [userId]);
 
       res.json({ encounters });
     } catch (error) {
@@ -57,25 +57,25 @@ const patientController = {
     }
   },
 
-  medicalHistoryEncounter: (req, res) => {
+  medicalHistoryEncounter: async (req, res) => {
     try {
       const userId = req.userId;
       const { encounterId } = req.params;
       
-      const encounter = db.prepare(`
+      const encounter = await dbGet(`
         SELECT * FROM medical_encounters 
         WHERE id = ? AND user_id = ?
-      `).get(encounterId, userId);
+      `, [encounterId, userId]);
 
       if (!encounter) {
         return res.status(404).json({ message: 'Encounter not found' });
       }
 
       // Get encounter details
-      const details = db.prepare(`
+      const details = await dbQuery(`
         SELECT * FROM encounter_details 
         WHERE encounter_id = ?
-      `).all(encounterId);
+      `, [encounterId]);
 
       res.json({ encounter, details });
     } catch (error) {
@@ -83,15 +83,15 @@ const patientController = {
     }
   },
 
-  reminders: (req, res) => {
+  reminders: async (req, res) => {
     try {
       const userId = req.userId;
       
-      const reminders = db.prepare(`
+      const reminders = await dbQuery(`
         SELECT * FROM reminders 
         WHERE user_id = ? 
         ORDER BY reminder_time ASC
-      `).all(userId);
+      `, [userId]);
 
       res.json({ reminders });
     } catch (error) {
@@ -99,15 +99,15 @@ const patientController = {
     }
   },
 
-  activeReminders: (req, res) => {
+  activeReminders: async (req, res) => {
     try {
       const userId = req.userId;
       
-      const reminders = db.prepare(`
+      const reminders = await dbQuery(`
         SELECT * FROM reminders 
-        WHERE user_id = ? AND status = 'active' AND reminder_time > datetime('now')
+        WHERE user_id = ? AND status = 'active' AND datetime(reminder_time) > datetime('now')
         ORDER BY reminder_time ASC
-      `).all(userId);
+      `, [userId]);
 
       res.json({ reminders });
     } catch (error) {
@@ -115,13 +115,13 @@ const patientController = {
     }
   },
 
-  homeReminderCounters: (req, res) => {
+  homeReminderCounters: async (req, res) => {
     try {
       const userId = req.userId;
       
-      const total = db.prepare('SELECT COUNT(*) as count FROM reminders WHERE user_id = ?').get(userId).count;
-      const active = db.prepare('SELECT COUNT(*) as count FROM reminders WHERE user_id = ? AND status = "active"').get(userId).count;
-      const completed = db.prepare('SELECT COUNT(*) as count FROM reminders WHERE user_id = ? AND status = "completed"').get(userId).count;
+      const total = (await dbGet('SELECT COUNT(*) as count FROM reminders WHERE user_id = ?', [userId])).count;
+      const active = (await dbGet('SELECT COUNT(*) as count FROM reminders WHERE user_id = ? AND status = "active"', [userId])).count;
+      const completed = (await dbGet('SELECT COUNT(*) as count FROM reminders WHERE user_id = ? AND status = "completed"', [userId])).count;
 
       res.json({ total, active, completed });
     } catch (error) {
@@ -129,16 +129,16 @@ const patientController = {
     }
   },
 
-  todaySchedule: (req, res) => {
+  todaySchedule: async (req, res) => {
     try {
       const userId = req.userId;
       const today = new Date().toISOString().split('T')[0];
       
-      const schedule = db.prepare(`
+      const schedule = await dbQuery(`
         SELECT * FROM reminders 
         WHERE user_id = ? AND date(reminder_time) = ?
         ORDER BY reminder_time ASC
-      `).all(userId, today);
+      `, [userId, today]);
 
       res.json({ schedule });
     } catch (error) {
@@ -146,26 +146,26 @@ const patientController = {
     }
   },
 
-  updateReminder: (req, res) => {
+  updateReminder: async (req, res) => {
     try {
       const userId = req.userId;
       const { reminderId } = req.params;
       const { status, reminder_time, notes } = req.body;
       
-      const reminder = db.prepare(`
+      const reminder = await dbGet(`
         SELECT * FROM reminders 
         WHERE id = ? AND user_id = ?
-      `).get(reminderId, userId);
+      `, [reminderId, userId]);
 
       if (!reminder) {
         return res.status(404).json({ message: 'Reminder not found' });
       }
 
-      db.prepare(`
+      await dbRun(`
         UPDATE reminders 
         SET status = ?, reminder_time = ?, notes = ?, updated_at = datetime('now')
         WHERE id = ?
-      `).run(status || reminder.status, reminder_time || reminder.reminder_time, notes || reminder.notes, reminderId);
+      `, [status || reminder.status, reminder_time || reminder.reminder_time, notes || reminder.notes, reminderId]);
 
       res.json({ message: 'Reminder updated successfully' });
     } catch (error) {
@@ -173,16 +173,16 @@ const patientController = {
     }
   },
 
-  notifications: (req, res) => {
+  notifications: async (req, res) => {
     try {
       const userId = req.userId;
       
-      const notifications = db.prepare(`
+      const notifications = await dbQuery(`
         SELECT * FROM notifications 
         WHERE user_id = ? 
         ORDER BY created_at DESC
         LIMIT 50
-      `).all(userId);
+      `, [userId]);
 
       res.json({ notifications });
     } catch (error) {
@@ -190,15 +190,15 @@ const patientController = {
     }
   },
 
-  pendingNotifications: (req, res) => {
+  pendingNotifications: async (req, res) => {
     try {
       const userId = req.userId;
       
-      const notifications = db.prepare(`
+      const notifications = await dbQuery(`
         SELECT * FROM notifications 
         WHERE user_id = ? AND read_at IS NULL
         ORDER BY created_at DESC
-      `).all(userId);
+      `, [userId]);
 
       res.json({ notifications });
     } catch (error) {
@@ -206,21 +206,21 @@ const patientController = {
     }
   },
 
-  markNotificationRead: (req, res) => {
+  markNotificationRead: async (req, res) => {
     try {
       const userId = req.userId;
       const { notificationId } = req.params;
       
-      const notification = db.prepare(`
+      const notification = await dbGet(`
         SELECT * FROM notifications 
         WHERE id = ? AND user_id = ?
-      `).get(notificationId, userId);
+      `, [notificationId, userId]);
 
       if (!notification) {
         return res.status(404).json({ message: 'Notification not found' });
       }
 
-      db.prepare('UPDATE notifications SET read_at = datetime("now") WHERE id = ?').run(notificationId);
+      await dbRun('UPDATE notifications SET read_at = datetime("now") WHERE id = ?', [notificationId]);
 
       res.json({ message: 'Notification marked as read' });
     } catch (error) {
@@ -228,15 +228,15 @@ const patientController = {
     }
   },
 
-  healthJournalDiagnoses: (req, res) => {
+  healthJournalDiagnoses: async (req, res) => {
     try {
       const userId = req.userId;
       
-      const diagnoses = db.prepare(`
+      const diagnoses = await dbQuery(`
         SELECT * FROM health_journal_diagnoses 
         WHERE user_id = ? 
         ORDER BY diagnosed_date DESC
-      `).all(userId);
+      `, [userId]);
 
       res.json({ diagnoses });
     } catch (error) {
@@ -244,17 +244,17 @@ const patientController = {
     }
   },
 
-  createHealthJournalNote: (req, res) => {
+  createHealthJournalNote: async (req, res) => {
     try {
       const userId = req.userId;
       const { diagnosisId, note, symptoms, severity } = req.body;
       
       const noteId = uuidv4();
       
-      db.prepare(`
+      await dbRun(`
         INSERT INTO health_journal_notes (id, user_id, diagnosis_id, note, symptoms, severity)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(noteId, userId, diagnosisId, note, symptoms, severity);
+      `, [noteId, userId, diagnosisId, note, symptoms, severity]);
 
       res.status(201).json({
         id: noteId,
@@ -270,16 +270,16 @@ const patientController = {
     }
   },
 
-  healthJournalNoteSummary: (req, res) => {
+  healthJournalNoteSummary: async (req, res) => {
     try {
       const userId = req.userId;
       
-      const notes = db.prepare(`
+      const notes = await dbQuery(`
         SELECT * FROM health_journal_notes 
         WHERE user_id = ? 
         ORDER BY created_at DESC
         LIMIT 20
-      `).all(userId);
+      `, [userId]);
 
       res.json({ notes });
     } catch (error) {
@@ -287,16 +287,16 @@ const patientController = {
     }
   },
 
-  healthJournalNotes: (req, res) => {
+  healthJournalNotes: async (req, res) => {
     try {
       const userId = req.userId;
       const { diagnosisId } = req.params;
       
-      const notes = db.prepare(`
+      const notes = await dbQuery(`
         SELECT * FROM health_journal_notes 
         WHERE user_id = ? AND diagnosis_id = ?
         ORDER BY created_at DESC
-      `).all(userId, diagnosisId);
+      `, [userId, diagnosisId]);
 
       res.json({ notes });
     } catch (error) {
@@ -304,7 +304,7 @@ const patientController = {
     }
   },
 
-  uploadProfilePicture: (req, res) => {
+  uploadProfilePicture: async (req, res) => {
     try {
       const userId = req.userId;
       
@@ -317,7 +317,7 @@ const patientController = {
       const filename = req.file.filename;
       const profilePictureUrl = `/uploads/${filename}`;
       
-      db.prepare('UPDATE users SET profile_picture = ? WHERE id = ?').run(profilePictureUrl, userId);
+      await dbRun('UPDATE users SET profile_picture = ? WHERE id = ?', [profilePictureUrl, userId]);
 
       res.json({ 
         message: 'Profile picture uploaded successfully',
@@ -328,10 +328,10 @@ const patientController = {
     }
   },
 
-  profilePicture: (req, res) => {
+  profilePicture: async (req, res) => {
     try {
       const userId = req.userId;
-      const user = db.prepare('SELECT profile_picture FROM users WHERE id = ?').get(userId);
+      const user = await dbGet('SELECT profile_picture FROM users WHERE id = ?', [userId]);
       
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
@@ -343,17 +343,17 @@ const patientController = {
     }
   },
 
-  addEmergencyContact: (req, res) => {
+  addEmergencyContact: async (req, res) => {
     try {
       const userId = req.userId;
       const { name, phone, relationship } = req.body;
       
       const contactId = uuidv4();
       
-      db.prepare(`
+      await dbRun(`
         INSERT INTO emergency_contacts (id, user_id, name, phone, relationship)
         VALUES (?, ?, ?, ?, ?)
-      `).run(contactId, userId, name, phone, relationship);
+      `, [contactId, userId, name, phone, relationship]);
 
       res.status(201).json({
         id: contactId,
@@ -368,21 +368,21 @@ const patientController = {
     }
   },
 
-  removeEmergencyContact: (req, res) => {
+  removeEmergencyContact: async (req, res) => {
     try {
       const userId = req.userId;
       const { contactId } = req.params;
       
-      const contact = db.prepare(`
+      const contact = await dbGet(`
         SELECT * FROM emergency_contacts 
         WHERE id = ? AND user_id = ?
-      `).get(contactId, userId);
+      `, [contactId, userId]);
 
       if (!contact) {
         return res.status(404).json({ message: 'Emergency contact not found' });
       }
 
-      db.prepare('DELETE FROM emergency_contacts WHERE id = ?').run(contactId);
+      await dbRun('DELETE FROM emergency_contacts WHERE id = ?', [contactId]);
 
       res.json({ message: 'Emergency contact removed successfully' });
     } catch (error) {
